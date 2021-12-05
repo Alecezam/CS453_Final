@@ -1,0 +1,3 @@
+D:\Users\Peter\Desktop\leanplyP2\learnply\Debug\learnply.exe
+C:\Users\Alec\Downloads\CS434_Project3\Debug\learnply.exe
+C:\CS453\finalProject\Debug\learnply.exe
