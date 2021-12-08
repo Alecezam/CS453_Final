@@ -15,6 +15,8 @@ The polygon data structure
 #include "polyhedron.h"
 #include "ply_io.h"
 
+#include <iostream>
+
 static PlyFile* in_ply;
 
 
@@ -140,6 +142,37 @@ Polyhedron::Polyhedron()
 
 	vlist = new Vertex * [max_verts];
 	qlist = new Quad * [max_quads];
+}
+
+Polyhedron::Polyhedron(Vertex** verts, int numVerts, int start) {
+	nedges = nquads = 0;
+	nverts = max_verts = numVerts;
+	vlist = new Vertex * [nverts];
+	for (int i = 0; i < nverts; i++) {
+
+		vlist[i] = new Vertex(verts[i + start]->x, verts[i + start]->y, verts[i + start]->z);
+		vlist[i]->vx = verts[i + start]->vx;
+		vlist[i]->vy = verts[i + start]->vy;
+		vlist[i]->vz = verts[i + start]->vz;
+
+		vlist[i]->scalar = verts[i + start]->scalar;
+
+		vlist[i]->other_props = verts[i + start]->other_props;
+	}
+	nquads = (sqrt(nverts)-1) * (sqrt(nverts) - 1);
+
+	qlist = new Quad * [nquads];
+	int q = 0;
+	for (int i = 0; i < 15; i++) {
+		for (int j = 0; j < 15; j++) {
+			qlist[q] = new Quad;
+			qlist[q]->verts[0] = vlist[j + i * 16];
+			qlist[q]->verts[1] = vlist[j + 1 + i * 16];
+			qlist[q]->verts[2] = vlist[j + 16 + 1 + i * 16];
+			qlist[q]->verts[3] = vlist[j + 16 + i * 16];
+			q++;
+		}
+	}
 }
 
 // return the vertex on the other end of the supplied edge

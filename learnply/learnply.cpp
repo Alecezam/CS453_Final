@@ -5,6 +5,7 @@
 #include <fstream>
 #include <vector>
 #include <iostream>
+#include <algorithm>
 
 #include "glError.h"
 #include "gl/glew.h"
@@ -92,6 +93,9 @@ void display_quads(GLenum mode, Polyhedron* poly);
 void display_selected_vertex(Polyhedron* poly);
 void display_selected_quad(Polyhedron* poly);
 
+void display3DIBFV();
+void displayIBFVSlices(Polyhedron**);
+void drawQuad();
 
 /*display vis results*/
 void display_polyhedron(Polyhedron* poly);
@@ -422,6 +426,247 @@ Process a keyboard action.  In particular, exit the program when an
 "escape" is pressed in the window.
 ******************************************************************************/
 
+
+void display3DIBFV() {
+	//n = number of slices in S_i?
+	int N = 16;
+	//std::vector<Polyhedron*> S;
+	Polyhedron* S[16];
+	for (int i = 0; i < 16; i++) {
+		//S[i]->vlist = poly->vlist;
+		//Polyhedron* S_temp = new Polyhedron(poly->vlist, 256, i*256);
+		//S.push_back(S_temp);
+		S[i] = new Polyhedron(poly->vlist, 256, i * 256);
+		//delete(S_temp);
+		//std::cout << S[i]->vlist[0]->vz << std::endl;
+	}
+
+	//GL_RGBA A[16];
+
+	GLsizei size = N;
+	GLuint *A = new GLuint[N];
+	glGenTextures(size, A);
+
+	for (int k = 0; k < N; k++) {
+		for (int i = 1; i < S[k]->nverts; i++) {
+			if (k > 0) {
+
+				float vzk = std::max(S[k - 1]->vlist[i]->vz, 0.0);
+				//Do 1D Z-axis advection from Si-1 to Si
+				glDisable(GL_BLEND);
+				glBindTexture(GL_TEXTURE_2D, A[k - 1]); drawQuad();
+
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_ZERO, GL_SRC_COLOR);
+				glBindTexture(GL_TEXTURE_2D, vzk ); drawQuad();
+
+				GLuint temp;
+				glGenTextures(1, &temp);
+				glBindTexture(GL_TEXTURE_2D, temp);
+				glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, N, N, 0);
+
+				glDisable(GL_BLEND);
+				glBindTexture(GL_TEXTURE_2D, A[k]); drawQuad();
+
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
+				glBindTexture(GL_TEXTURE_2D, vzk ); drawQuad();
+
+				glBlendFunc(GL_ONE, GL_ONE);
+				glBindTexture(GL_TEXTURE_2D, temp); drawQuad();
+
+				glBindTexture(GL_TEXTURE_2D, A[k]);
+				glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, N, N, 0);
+
+			}
+			if (k < N - 1) {
+				//Do 1D Z-axis advection from Si+1 to Si
+
+				float vzk = std::max(-1 * S[k + 1]->vlist[i]->vz, 0.0);
+				glDisable(GL_BLEND);
+				glBindTexture(GL_TEXTURE_2D, A[k + 1]); drawQuad();
+
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_ZERO, GL_SRC_COLOR);
+				glBindTexture(GL_TEXTURE_2D, vzk); drawQuad();
+
+				GLuint temp;
+				glGenTextures(1, &temp);
+
+				glBindTexture(GL_TEXTURE_2D, temp);
+				glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, N, N, 0);
+
+				glDisable(GL_BLEND);
+				glBindTexture(GL_TEXTURE_2D, A[k]); drawQuad();
+
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
+				glBindTexture(GL_TEXTURE_2D, vzk ); drawQuad();
+
+				glBlendFunc(GL_ONE, GL_ONE);
+				glBindTexture(GL_TEXTURE_2D, temp); drawQuad();
+
+				glBindTexture(GL_TEXTURE_2D, A[k]);
+				glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, N, N, 0);
+				
+			}
+			//Do 2d IBFV-based advection in the slice Si
+		}
+	}
+	displayIBFVSlices(S);
+	
+
+	for (int i = 0; i < 16; i++) {
+		delete(S[i]);
+	}
+
+}
+
+void drawQuad() {
+	//This function does not seem to actually do anything rihgt now
+	GLenum mode;
+	//draws a single textured quadrilateral that covers the whole image.
+	unsigned int i, j;
+	GLfloat mat_diffuse[4];
+
+	glEnable(GL_POLYGON_OFFSET_FILL);
+	glPolygonOffset(1., 1.);
+	glEnable(GL_DEPTH_TEST);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	glShadeModel(GL_SMOOTH);
+	glDisable(GL_LIGHTING);
+
+	glBegin(GL_POLYGON);
+	glVertex3d(10, 10, 0);
+	glVertex3d(10, -10, 0);
+	glVertex3d(-10, -10, 0);
+	glVertex3d(-10, 10, 0);
+	glEnd();
+}
+
+
+void displayIBFVSlices(Polyhedron** S) {
+	glDisable(GL_LIGHTING);
+	glDisable(GL_LIGHT0);
+	glDisable(GL_LIGHT1);
+	glDisable(GL_BLEND);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+
+	glEnable(GL_TEXTURE_2D);
+	glShadeModel(GL_FLAT);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	glClearColor(0.5, 0.5, 0.5, 1.0);  // background for rendering color coding and lighting
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	// draw the mesh using pixels and use vector field to advect texture coordinates
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, win_width, win_height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+	double modelview_matrix[16], projection_matrix[16];
+	int viewport[4];
+	glGetDoublev(GL_MODELVIEW_MATRIX, modelview_matrix);
+	glGetDoublev(GL_PROJECTION_MATRIX, projection_matrix);
+	glGetIntegerv(GL_VIEWPORT, viewport);
+	for (int k = 0; k < 16; k++) {
+		for (int i = 0; i < S[k]->nquads; i++)
+		{
+			Quad* qtemp = S[k]->qlist[i];
+
+			glBegin(GL_QUADS);
+			for (int j = 0; j < 4; j++)
+			{
+				Vertex* vtemp = qtemp->verts[j];
+
+				double tx, ty, dummy;
+				gluProject((GLdouble)vtemp->x, (GLdouble)vtemp->y, (GLdouble)vtemp->z,
+					modelview_matrix, projection_matrix, viewport, &tx, &ty, &dummy);
+
+				tx = tx / win_width;
+				ty = ty / win_height;
+
+				icVector2 dp = icVector2(vtemp->vx, vtemp->vy);
+				normalize(dp);
+				dp *= dmax;
+
+				double dx = -dp.x;
+				double dy = -dp.y;
+
+				float px = tx + dx;
+				float py = ty + dy;
+
+				glTexCoord2f(px, py);
+				glVertex3d(vtemp->x, vtemp->y, vtemp->z);
+			}
+			glEnd();
+		}
+	}
+
+	glEnable(GL_BLEND);
+
+	// blend in noise pattern
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+
+	glTranslatef(-1.0, -1.0, 0.0);
+	glScalef(2.0, 2.0, 1.0);
+
+	glCallList(1);
+
+	glBegin(GL_QUAD_STRIP);
+
+	glTexCoord2f(0.0, 0.0);  glVertex2f(0.0, 0.0);
+	glTexCoord2f(0.0, tmax); glVertex2f(0.0, 1.0);
+	glTexCoord2f(tmax, 0.0);  glVertex2f(1.0, 0.0);
+	glTexCoord2f(tmax, tmax); glVertex2f(1.0, 1.0);
+	glEnd();
+	glDisable(GL_BLEND);
+
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
+
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+
+	glReadPixels(0, 0, win_width, win_height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+	// draw the mesh using pixels without advecting texture coords
+	glClearColor(1.0, 1.0, 1.0, 1.0);  // background for rendering color coding and lighting
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, win_width, win_height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+	for (int k = 0; k < 16; k++) {
+		for (int i = 0; i < S[k]->nquads; i++)
+		{
+			Quad* qtemp = S[k]->qlist[i];
+			glBegin(GL_QUADS);
+			for (int j = 0; j < 4; j++)
+			{
+				Vertex* vtemp = qtemp->verts[j];
+				double tx, ty, dummy;
+				gluProject((GLdouble)vtemp->x, (GLdouble)vtemp->y, (GLdouble)vtemp->z,
+					modelview_matrix, projection_matrix, viewport, &tx, &ty, &dummy);
+				tx = tx / win_width;
+				ty = ty / win_height;
+				glTexCoord2f(tx, ty);
+				glVertex3d(vtemp->x, vtemp->y, vtemp->z);
+			}
+			glEnd();
+		}
+	}
+	glDisable(GL_TEXTURE_2D);
+	glDisable(GL_BLEND);
+	glShadeModel(GL_SMOOTH);
+}
+
 void keyboard(unsigned char key, int x, int y) {
 	int i;
 
@@ -516,6 +761,15 @@ void keyboard(unsigned char key, int x, int y) {
 			}
 
 		}
+		glutPostRedisplay();
+		break;
+
+	case '9':	// solid color display with lighting
+		display_mode = 9;
+		glutPostRedisplay();
+		break;
+	case '0':	// solid color display with lighting
+		display_mode = 0;
 		glutPostRedisplay();
 		break;
 
@@ -1499,9 +1753,6 @@ void display_polyhedron(Polyhedron* poly)
 			}
 			glEnd();
 		}
-		for (int j = 0; j < poly->nverts; j++) {
-			drawDot(poly->vlist[j]->x, poly->vlist[j]->y, poly->vlist[j]->z, .05f, 1, 0, 0);
-		}
 	}
 	break;
 
@@ -1618,6 +1869,25 @@ void display_polyhedron(Polyhedron* poly)
 		{
 			drawPolyLine(streamlines[k], 1.0, 1.0, 0.0, 0.0);
 		}
+	}
+	break;
+
+
+	case 9:	// With vertexes colored
+	{
+		display3DIBFV();
+		for (int j = 0; j < poly->nverts; j++) {
+			drawDot(poly->vlist[j]->x, poly->vlist[j]->y, poly->vlist[j]->z, .02f, 1, 0, 0);
+		}
+	}
+	break;
+
+	case 0:	// Without
+	{
+		display3DIBFV();
+		//for (int j = 0; j < poly->nverts; j++) {
+			//drawDot(poly->vlist[j]->x, poly->vlist[j]->y, poly->vlist[j]->z, .05f, 1, 0, 0);
+		//}
 	}
 	break;
 

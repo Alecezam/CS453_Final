@@ -100,6 +100,7 @@ public:
 	/*constructors*/
 	Polyhedron();
 	Polyhedron(FILE*);
+	Polyhedron(Vertex**, int, int);
 
 	/*initialization functions*/
 	void create_pointers();
