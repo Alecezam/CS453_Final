@@ -9,6 +9,10 @@ public:
 	// fields
 	icVector3 start, end;
 	double len;
+	double R = 0;
+	double G = 0;
+	double B = 0;
+	double thickness = 1.0;
 
 	// constructors
 

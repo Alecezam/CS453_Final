@@ -76,10 +76,11 @@ void drawPolyLine(PolyLine pl, double width = 1.0, float R = 0.0, float G = 0.0,
 	glLineWidth(width);
 
 	glBegin(GL_LINES);
-	glColor3f(R, G, B);
-
+	
 	for (int i = 0; i < pl.size(); i++)
 	{
+		//glLineWidth(pl[i].thickness);
+		glColor3f(pl[i].R, pl[i].G, pl[i].B);
 		glVertex3f(pl[i].start.x, pl[i].start.y, pl[i].start.z);
 		glVertex3f(pl[i].end.x, pl[i].end.y, pl[i].end.z);
 	}

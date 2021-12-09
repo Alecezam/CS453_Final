@@ -21,6 +21,8 @@
 
 Polyhedron* poly;
 std::vector<PolyLine> streamlines;
+PolyLine miniLines;
+std::vector<std::vector<float>> miniLinesColors;
 std::vector<icVector3> points;
 std::vector<icVector3> sources;
 std::vector<icVector3> sinks;
@@ -95,6 +97,7 @@ void display_selected_quad(Polyhedron* poly);
 
 void display3DIBFV();
 void displayIBFVSlices(Polyhedron**);
+void displayIBFVSlicesAlt(Polyhedron**);
 void drawQuad();
 
 /*display vis results*/
@@ -107,7 +110,7 @@ Main program.
 int main(int argc, char* argv[])
 {
 	/*load mesh from ply file*/
-	FILE* this_file = fopen("../data/3D/rotstrat4096.ply", "r");
+	FILE* this_file = fopen("../data/3D/mhd1024.ply", "r");
 	poly = new Polyhedron(this_file);
 	fclose(this_file);
 	
@@ -428,27 +431,64 @@ Process a keyboard action.  In particular, exit the program when an
 
 
 void display3DIBFV() {
-	//n = number of slices in S_i?
 	int N = 16;
-	//std::vector<Polyhedron*> S;
+
+	//Slice in the Z direction
 	Polyhedron* S[16];
 	for (int i = 0; i < 16; i++) {
-		//S[i]->vlist = poly->vlist;
-		//Polyhedron* S_temp = new Polyhedron(poly->vlist, 256, i*256);
-		//S.push_back(S_temp);
 		S[i] = new Polyhedron(poly->vlist, 256, i * 256);
-		//delete(S_temp);
-		//std::cout << S[i]->vlist[0]->vz << std::endl;
 	}
 
-	//GL_RGBA A[16];
 
+
+	//Initialization
+	double timeRes = 16; //Time resolution of noise texture
+	double Ta = .95; //Ink to hole injection ratio??   good values are .9 or higher
+	double Th = .05; //Noise injection strength   good values run from .01 to .1
+
+	GLuint** H = new GLuint *[N];
+	int** G = new int*[N];
+	GLuint** Q = new GLuint * [N];
+	for (int i = 0; i < N; i++) {
+		H[i] = new GLuint[timeRes];
+		G[i] = new int[timeRes];
+		Q[i] = new GLuint[timeRes];
+	}
+
+	for (int k = 0; k < N; k++) {
+		for (int n = 0; n < timeRes; n++) {
+			//precompute noise textures for Hkn, Qkn = Gkn Hkn
+			if (n < Th) {
+				H[k][n] = 0;
+			}
+			else {
+				H[k][n] = n;
+			}
+
+			if (n < Ta) {
+				G[k][n] = 0; //=(0,t)
+			}
+			else {
+				G[k][n] = (1 - n) / (1 - Ta); //=((1-n)/(1-Ta), t);
+			}
+			Q[k][n] = G[k][n] * H[k][n];
+		}
+		//build warped polygon mesh Pk
+			//I think Pk the polygon made from Sk, but Sk is a plane so IDK why it would be warped.
+
+		//create texture Ak
+			//Created below outside of loop
+	}
 	GLsizei size = N;
 	GLuint *A = new GLuint[N];
 	glGenTextures(size, A);
 
+
+	//Execution
 	for (int k = 0; k < N; k++) {
+		//clear draw table
 		for (int i = 1; i < S[k]->nverts; i++) {
+			//Preform Z advection from slice k-1 to k
 			if (k > 0) {
 
 				float vzk = std::max(S[k - 1]->vlist[i]->vz, 0.0);
@@ -458,7 +498,7 @@ void display3DIBFV() {
 
 				glEnable(GL_BLEND);
 				glBlendFunc(GL_ZERO, GL_SRC_COLOR);
-				glBindTexture(GL_TEXTURE_2D, vzk ); drawQuad();
+				glBindTexture(GL_TEXTURE_2D, vzk); drawQuad();
 
 				GLuint temp;
 				glGenTextures(1, &temp);
@@ -470,7 +510,7 @@ void display3DIBFV() {
 
 				glEnable(GL_BLEND);
 				glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
-				glBindTexture(GL_TEXTURE_2D, vzk ); drawQuad();
+				glBindTexture(GL_TEXTURE_2D, vzk); drawQuad();
 
 				glBlendFunc(GL_ONE, GL_ONE);
 				glBindTexture(GL_TEXTURE_2D, temp); drawQuad();
@@ -479,6 +519,7 @@ void display3DIBFV() {
 				glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, N, N, 0);
 
 			}
+			//Pregorm Z advection from slice k to k+1
 			if (k < N - 1) {
 				//Do 1D Z-axis advection from Si+1 to Si
 
@@ -501,41 +542,74 @@ void display3DIBFV() {
 
 				glEnable(GL_BLEND);
 				glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
-				glBindTexture(GL_TEXTURE_2D, vzk ); drawQuad();
+				glBindTexture(GL_TEXTURE_2D, vzk); drawQuad();
 
 				glBlendFunc(GL_ONE, GL_ONE);
 				glBindTexture(GL_TEXTURE_2D, temp); drawQuad();
 
 				glBindTexture(GL_TEXTURE_2D, A[k]);
 				glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 0, 0, N, N, 0);
-				
+
 			}
-			//Do 2d IBFV-based advection in the slice Si
 		}
+
+		//Draw mesh Pk textured with current drawable	
+		double timeStep = .001;
+		for (int i = 0; i < S[k]->nquads; i++) {
+			Quad* temp_q = poly->qlist[i];
+			glBegin(GL_POLYGON);
+			for (int j = 0; j < 4; j++) {
+				Vertex* temp_v = temp_q->verts[j];
+				//temp_v->x = temp_v->x + temp_v->vx * timeStep;
+				//temp_v->y = temp_v->y + temp_v->vy * timeStep;
+				//temp_v->z = temp_v->z + temp_v->vz * timeStep;
+				glNormal3d(temp_v->normal.entry[0], temp_v->normal.entry[1], temp_v->normal.entry[2]);
+				glVertex3d(temp_v->x, temp_v->y, temp_v->z);
+			}
+			glEnd();
+		}
+		for (int t = 0; t < timeRes; t++) {	//Absolutetly no idea if this needs to be here
+			//inject noice using textures Qkn and Hkn
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+			glBindTexture(GL_TEXTURE_2D, H[k][t]); drawQuad();	//The example code says for this to be "P" but H makes sense based on the equation
+			//A = (1- Hkn) Ak
+
+			glBlendFunc(GL_ONE, GL_ONE);
+			glBindTexture(GL_TEXTURE_2D, Q[k][t]); drawQuad();
+			//A = (1-Hkn)Ak + Hkn Gkn
+		}
+		//copy drawable to texture Ak
+			//Does this happen above??
+
+		
+		//display results(draw textures Ak back to front)
 	}
-	displayIBFVSlices(S);
+	displayIBFVSlicesAlt(S);
 	
 
 	for (int i = 0; i < 16; i++) {
-		delete(S[i]);
+		delete S[i];
 	}
+	delete [] A;
+
+	for (int i = 0; i < timeRes; i++) {
+		delete G[i];
+		delete H[i];
+		delete Q[i];
+	}
+	delete [] G;
+	delete [] H;
+	delete [] Q;
 
 }
 
 void drawQuad() {
 	//This function does not seem to actually do anything rihgt now
-	GLenum mode;
 	//draws a single textured quadrilateral that covers the whole image.
-	unsigned int i, j;
-	GLfloat mat_diffuse[4];
 
-	glEnable(GL_POLYGON_OFFSET_FILL);
-	glPolygonOffset(1., 1.);
-	glEnable(GL_DEPTH_TEST);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glShadeModel(GL_SMOOTH);
-	glDisable(GL_LIGHTING);
-
+	//How do I make it textured
+	//What is whole image vs whole screen, if we are talking silhoette of vector field, its not a quad
 	glBegin(GL_POLYGON);
 	glVertex3d(10, 10, 0);
 	glVertex3d(10, -10, 0);
@@ -544,6 +618,127 @@ void drawQuad() {
 	glEnd();
 }
 
+void displayIBFVSlicesAlt(Polyhedron** S) {
+	glDisable(GL_LIGHTING);
+	glDisable(GL_LIGHT0);
+	glDisable(GL_LIGHT1);
+	glDisable(GL_BLEND);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+
+	glEnable(GL_TEXTURE_2D);
+	glShadeModel(GL_FLAT);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	glClearColor(0.5, 0.5, 0.5, 1.0);  // background for rendering color coding and lighting
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	// draw the mesh using pixels and use vector field to advect texture coordinates
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, win_width, win_height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+	double modelview_matrix[16], projection_matrix[16];
+	int viewport[4];
+	glGetDoublev(GL_MODELVIEW_MATRIX, modelview_matrix);
+	glGetDoublev(GL_PROJECTION_MATRIX, projection_matrix);
+	glGetIntegerv(GL_VIEWPORT, viewport);
+	for (int k = 0; k < 16; k++) {
+		for (int i = 0; i < S[k]->nquads; i++)
+		{
+			Quad* qtemp = S[k]->qlist[i];
+
+			glBegin(GL_QUADS);
+			for (int j = 0; j < 4; j++)
+			{
+				Vertex* vtemp = qtemp->verts[j];
+
+				double tx, ty, dummy;
+				gluProject((GLdouble)vtemp->x, (GLdouble)vtemp->y, (GLdouble)vtemp->z,
+					modelview_matrix, projection_matrix, viewport, &tx, &ty, &dummy);
+
+				tx = tx / win_width;
+				ty = ty / win_height;
+
+				icVector2 dp = icVector2(vtemp->vx, vtemp->vy);
+				normalize(dp);
+				dp *= dmax;
+
+				double dx = -dp.x;
+				double dy = -dp.y;
+
+				float px = tx + dx;
+				float py = ty + dy;
+
+				glTexCoord2f(px, py);
+				glVertex3d(vtemp->x, vtemp->y, vtemp->z);
+			}
+			glEnd();
+		}
+	}
+
+	glEnable(GL_BLEND);
+
+	// blend in noise pattern
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+
+	glTranslatef(-1.0, -1.0, 0.0);
+	glScalef(2.0, 2.0, 1.0);
+
+	glCallList(1);
+
+	glBegin(GL_QUAD_STRIP);
+
+	glTexCoord2f(0.0, 0.0);  glVertex2f(0.0, 0.0);
+	glTexCoord2f(0.0, tmax); glVertex2f(0.0, 1.0);
+	glTexCoord2f(tmax, 0.0);  glVertex2f(1.0, 0.0);
+	glTexCoord2f(tmax, tmax); glVertex2f(1.0, 1.0);
+	glEnd();
+	glDisable(GL_BLEND);
+
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
+
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+
+	glReadPixels(0, 0, win_width, win_height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+
+	// draw the mesh using pixels without advecting texture coords
+	glClearColor(1.0, 1.0, 1.0, 1.0);  // background for rendering color coding and lighting
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, win_width, win_height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+	for (int k = 0; k < 16; k++) {
+		for (int i = 0; i < S[k]->nquads; i++)
+		{
+			Quad* qtemp = S[k]->qlist[i];
+			glBegin(GL_QUADS);
+			for (int j = 0; j < 4; j++)
+			{
+				Vertex* vtemp = qtemp->verts[j];
+				double tx, ty, dummy;
+				gluProject((GLdouble)vtemp->x, (GLdouble)vtemp->y, (GLdouble)vtemp->z,
+					modelview_matrix, projection_matrix, viewport, &tx, &ty, &dummy);
+				tx = tx / win_width;
+				ty = ty / win_height;
+				glTexCoord2f(tx, ty);
+				glVertex3d(vtemp->x, vtemp->y, vtemp->z);
+			}
+			glEnd();
+		}
+	}
+	glDisable(GL_TEXTURE_2D);
+	glDisable(GL_BLEND);
+	glShadeModel(GL_SMOOTH);
+}
 
 void displayIBFVSlices(Polyhedron** S) {
 	glDisable(GL_LIGHTING);
@@ -764,8 +959,82 @@ void keyboard(unsigned char key, int x, int y) {
 		glutPostRedisplay();
 		break;
 
-	case '9':	// solid color display with lighting
+	case '9':	// weird attempt at fake IBFV
 		display_mode = 9;
+		{
+			miniLines.clear();
+			//PolyLine pline;
+
+			std::vector<double> lengths;
+
+			double timeStep = .1;
+			for (int i = 0; i < poly->nverts; i++) {
+				Vertex* v_temp = poly->vlist[i];
+
+				double x_start = v_temp->x + v_temp->vx * -1 * timeStep;
+				double x_end = v_temp->x + v_temp->vx * timeStep;
+				double y_start = v_temp->y + v_temp->vy * -1 * timeStep;
+				double y_end = v_temp->y + v_temp->vy * timeStep;
+				double z_start = v_temp->z + v_temp->vz * -1 * timeStep;
+				double z_end = v_temp->z + v_temp->vz * timeStep;
+
+				LineSegment line(v_temp->x + v_temp->vx * -1 * timeStep,
+					v_temp->y + v_temp->vy * -1 * timeStep,
+					v_temp->z + v_temp->vz * -1 * timeStep,
+					v_temp->x + v_temp->vx * timeStep,
+					v_temp->y + v_temp->vy * timeStep,
+					v_temp->z + v_temp->vz * timeStep);
+				//pline.push_back(line);
+				//miniLines.push_back(pline);
+				miniLines.push_back(line);
+				double x2 = (x_end - x_start);
+				double y2 = (y_end - y_start);
+				double z2 = (z_end - z_start);
+
+				double len = sqrt(x2*x2 + y2*y2 + z2*z2);
+				//printf("Len: %f\n", len);
+				lengths.push_back(len);
+
+			}
+
+			double maxLen = -9999;
+			double minLen = 9999;
+			double meanLen = 0;
+			for (int j = 0; j < miniLines.size(); j++) {
+				float length = lengths[j];
+
+				if (length > maxLen) {
+					maxLen = length;
+				}
+
+				if (length < minLen) {
+					minLen = length;
+				}
+				meanLen += length;
+			}
+			meanLen /= miniLines.size();
+
+			for (int j = 0; j < miniLines.size(); j++) {
+				float length = lengths[j];
+				float val1 = (length - minLen) / (maxLen - minLen);
+				float val2 = (maxLen - length) / (maxLen - minLen);
+				//printf("Max: %f, Min: %f, Mean: %f\n", maxLen, minLen, meanLen);
+				miniLines[j].R = val1;
+				miniLines[j].G = val2;
+				miniLines[j].thickness = (length - minLen) / (maxLen - minLen) + 0.1;
+
+
+			/*	std::vector<float> lineColor;
+				lineColor.push_back(val1);
+				lineColor.push_back(0);
+				lineColor.push_back(val2);
+				miniLinesColors.push_back(lineColor);
+			*/
+			}
+
+
+		}
+		printf("Done\n");
 		glutPostRedisplay();
 		break;
 	case '0':	// solid color display with lighting
@@ -1875,10 +2144,10 @@ void display_polyhedron(Polyhedron* poly)
 
 	case 9:	// With vertexes colored
 	{
-		display3DIBFV();
-		for (int j = 0; j < poly->nverts; j++) {
-			drawDot(poly->vlist[j]->x, poly->vlist[j]->y, poly->vlist[j]->z, .02f, 1, 0, 0);
-		}
+		//for (int j = 0; j < miniLines.size(); j++) {
+			//drawPolyLine(miniLines[j], 0.8, miniLinesColors[j][0], miniLinesColors[j][1], miniLinesColors[j][2]);
+			drawPolyLine(miniLines, 0.1, 0, 0, 0);
+		//}
 	}
 	break;
 
